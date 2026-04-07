@@ -86,7 +86,11 @@ async def run_single(agent: Agent, command: str) -> None:
         channel="cli",
         chat_id="single",
     )
-    print(result)
+    if result:
+        try:
+            print(result)
+        except UnicodeEncodeError:
+            print(result.encode('utf-8', errors='replace').decode('utf-8'))
 
 
 async def run_server(agent: Agent, host: str = "0.0.0.0", port: int = 18792) -> None:
@@ -154,6 +158,10 @@ def create_default_config(config_path: Path) -> Config:
 
 def main() -> None:
     """Main entry point."""
+    import sys
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
     parser = argparse.ArgumentParser(
         description="emb-agent - Embedded System Development Assistant",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -183,12 +191,20 @@ def main() -> None:
     if args.model:
         config.agent.model = args.model
 
-    api_key = config.providers.anthropic.api_key or config.providers.openai.api_key
-    api_base = config.providers.anthropic.api_base or config.providers.openai.api_base
+    api_key = (
+        config.providers.anthropic.api_key or
+        config.providers.openai.api_key or
+        config.providers.minimax.api_key
+    )
+    api_base = (
+        config.providers.anthropic.api_base or
+        config.providers.openai.api_base or
+        config.providers.minimax.api_base
+    )
 
     if not api_key:
-        logger.warning("No API key configured. Set ANTHROPIC_API_KEY or ANTHROPIC_API_KEY in environment.")
-        logger.warning("Or edit config.json to set providers.anthropic.api_key or providers.openai.api_key")
+        logger.warning("No API key configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in environment.")
+        logger.warning("Or edit config.json to set providers.anthropic.api_key, providers.openai.api_key, or providers.minimax.api_key")
 
     provider = LiteLLMProvider(
         api_key=api_key,
@@ -202,6 +218,8 @@ def main() -> None:
         model=config.agent.model,
         max_iterations=config.agent.max_tool_iterations,
         context_window_tokens=config.agent.context_window_tokens,
+        language=config.agent.language,
+        reasoning_effort=config.agent.reasoning_effort,
     )
 
     if args.command:

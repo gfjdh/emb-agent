@@ -15,6 +15,14 @@ from loguru import logger
 from emb_agent.bus import InboundMessage, OutboundMessage
 from emb_agent.bus.queue import MessageBus
 from emb_agent.providers import LLMProvider, LiteLLMProvider
+from emb_agent.prompts import (
+    Language,
+    get_system_prompt,
+    get_welcome_message,
+    get_tool_continue_message,
+    get_error_message,
+    get_evaluation_report_text,
+)
 from emb_agent.session import Session, SessionManager
 from emb_agent.tools import ToolRegistry
 from emb_agent.tools.deploy import SSHDeployTool, SSHExecTool
@@ -33,12 +41,17 @@ class Agent:
         model: str | None = None,
         max_iterations: int = 40,
         context_window_tokens: int = 200000,
+        language: str = "zh",
+        reasoning_effort: str | None = None,
     ):
         self.workspace = workspace
         self.provider = provider
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
         self.context_window_tokens = context_window_tokens
+        self.language = Language(language) if language else Language.ZH
+        self.reasoning_effort = reasoning_effort
+        self.kb = None
 
         self.workspace.mkdir(parents=True, exist_ok=True)
         (self.workspace / "projects").mkdir(exist_ok=True)
@@ -80,75 +93,45 @@ class Agent:
         pass
 
     def build_system_prompt(self) -> str:
-        """Build the system prompt for the agent."""
-        return """# emb-agent - Embedded System Development Assistant
+        """Build the system prompt with workspace and knowledge base info."""
+        base_prompt = get_system_prompt(self.language)
 
-You are an expert embedded systems developer specializing in Phytium (飞腾) ARM processors and Linux kernel development.
+        kb_info = ""
+        if self.kb and self.kb.enabled:
+            docs_count = len(self.kb.index) if self.kb.index else 0
+            if self.language == Language.ZH:
+                kb_info = f"\n\n## 知识库\n你有权限访问包含 {docs_count} 个飞腾开发板相关文档的知识库。"
+                if self.kb.top_k:
+                    kb_info += f"\n使用 retrieve_knowledge 搜索相关信息。默认 top_k={self.kb.top_k}。"
+            else:
+                kb_info = f"\n\n## Knowledge Base\nYou have access to a knowledge base with {docs_count} documents about Phytium board development."
+                if self.kb.top_k:
+                    kb_info += f"\nUse retrieve_knowledge to search for relevant information. Default top_k={self.kb.top_k}."
 
-## Your Capabilities
+        tools_info = ""
+        if self.tools:
+            tool_defs = self.tools.get_definitions()
+            tool_names = [t["function"]["name"] for t in tool_defs]
+            if self.language == Language.ZH:
+                tools_info = "\n\n## 已注册工具\n" + "\n".join(f"- {name}" for name in tool_names)
+            else:
+                tools_info = "\n\n## Registered Tools\n" + "\n".join(f"- {name}" for name in tool_names)
 
-You help users develop embedded applications for Phytium development boards through the full lifecycle:
-1. Requirement analysis and project planning
-2. Knowledge retrieval for platform-specific guidance
-3. Code generation (drivers, applications, build scripts)
-4. Deployment to target hardware
-5. Testing and debugging assistance
+        workspace_info = ""
+        if self.workspace:
+            if self.language == Language.ZH:
+                workspace_info = f"\n\n## 工作空间\n工作空间: {self.workspace}"
+            else:
+                workspace_info = f"\n\n## Workspace\nWorkspace: {self.workspace}"
 
-## Core Use Cases
+        reasoning_info = ""
+        if self.reasoning_effort:
+            if self.language == Language.ZH:
+                reasoning_info = f"\n\n## 推理\n推理强度: {self.reasoning_effort}"
+            else:
+                reasoning_info = f"\n\n## Reasoning\nReasoning effort: {self.reasoning_effort}"
 
-- UC-01: Parse user requirements into structured specifications
-- UC-02: Retrieve relevant knowledge from the knowledge base
-- UC-03: Generate comprehensive project plans
-- UC-04: Generate code files for the project
-- UC-05: Read and analyze code files
-- UC-06: Modify and improve code files
-- UC-07: Deploy code to Phytium development board
-- UC-08: Execute tests on target hardware
-- UC-09: Analyze error logs and diagnose issues
-- UC-10: Provide and apply fixes for issues
-- UC-11: Generate evaluation reports
-
-## Working Process
-
-1. When user describes a project (e.g., "Create a LED blinking driver for Phytium board"):
-   - Use retrieve_knowledge to find relevant platform documentation
-   - Generate a structured project plan
-   - Create all necessary code files
-   - Deploy to target and verify
-
-2. When errors occur:
-   - Analyze the error logs using LLM reasoning
-   - Identify root cause
-   - Propose or apply fixes
-
-3. Always verify code correctness before reporting completion
-
-## Tools Available
-
-- read_file: Read file contents
-- write_file: Write content to file
-- edit_file: Edit existing files
-- list_dir: List directory contents
-- exec: Execute shell commands
-- retrieve_knowledge: Query the knowledge base
-- add_knowledge: Add new knowledge entries
-- deploy_to_target: Deploy to remote Phytium board
-- exec_on_target: Execute commands on remote board
-
-## Safety Guidelines
-
-- Validate all code before deployment
-- Check board connection parameters before deployment
-- Never suggest dangerous operations (formatting, overwriting boot sectors)
-- Always confirm destructive actions with user
-
-## Response Style
-
-- Be concise and technical
-- Provide working code examples
-- Include compilation instructions when relevant
-- Explain platform-specific considerations
-"""
+        return base_prompt + kb_info + tools_info + workspace_info + reasoning_info
 
     def build_messages(
         self,
@@ -252,13 +235,13 @@ You help users develop embedded applications for Phytium development boards thro
                 # MiniMax requires a user message after all tool results
                 messages.append({
                     "role": "user",
-                    "content": "继续",
+                    "content": get_tool_continue_message(self.language),
                 })
             else:
                 clean = self._strip_think(response.content)
                 if response.finish_reason == "error":
                     logger.error("LLM returned error: {}", (clean or "")[:200])
-                    final_content = clean or "Sorry, I encountered an error calling the AI model."
+                    final_content = clean or get_error_message("llm_error", self.language, error="AI model error")
                     break
 
                 messages.append({"role": "assistant", "content": clean})
@@ -267,10 +250,7 @@ You help users develop embedded applications for Phytium development boards thro
 
         if final_content is None and iteration >= self.max_iterations:
             logger.warning("Max iterations ({}) reached", self.max_iterations)
-            final_content = (
-                f"I reached the maximum number of tool call iterations ({self.max_iterations}) "
-                "without completing the task."
-            )
+            final_content = get_error_message("max_iterations", self.language, max_iterations=self.max_iterations)
 
         elapsed = time.time() - task_start_time
         self._evaluation_data.append({
@@ -370,35 +350,4 @@ You help users develop embedded applications for Phytium development boards thro
 
     def get_evaluation_report(self) -> str:
         """Generate evaluation report from collected data."""
-        if not self._evaluation_data:
-            return "No evaluation data available yet."
-
-        total_tasks = len(self._evaluation_data)
-        successful = sum(1 for d in self._evaluation_data if d["success"])
-        total_iterations = sum(d["iterations"] for d in self._evaluation_data)
-        total_time = sum(d["elapsed_seconds"] for d in self._evaluation_data)
-
-        tool_usage: dict[str, int] = {}
-        for d in self._evaluation_data:
-            for tool in d["tools_used"]:
-                tool_usage[tool] = tool_usage.get(tool, 0) + 1
-
-        report_lines = [
-            "# Evaluation Report",
-            "",
-            f"## Summary",
-            f"- Total tasks: {total_tasks}",
-            f"- Successful: {successful} ({100*successful/total_tasks:.1f}%)",
-            f"- Failed: {total_tasks - successful}",
-            f"- Total iterations: {total_iterations}",
-            f"- Average iterations per task: {total_iterations/total_tasks:.1f}",
-            f"- Total time: {total_time:.1f}s",
-            f"- Average time per task: {total_time/total_tasks:.1f}s",
-            "",
-            "## Tool Usage",
-        ]
-
-        for tool, count in sorted(tool_usage.items(), key=lambda x: -x[1]):
-            report_lines.append(f"- {tool}: {count}")
-
-        return "\n".join(report_lines)
+        return get_evaluation_report_text(self._evaluation_data, self.language)
