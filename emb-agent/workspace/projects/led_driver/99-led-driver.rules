@@ -1,0 +1,8 @@
+# Udev rules for LED driver device node
+# Install to: /etc/udev/rules.d/
+
+# Set permissions for led_driver device
+KERNEL=="led_driver", MODE="0666", GROUP="gpio"
+
+# Create symlink
+KERNEL=="led_driver", SYMLINK+="phytium_led"

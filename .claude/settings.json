@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from emb_agent import Agent; from emb_agent.providers import LiteLLMProvider; from emb_agent.config import Config; print\\('Import successful'\\)\")",
+      "Bash(python -c \"from emb_agent.agent import Agent; from emb_agent.providers import LiteLLMProvider; from emb_agent.config import Config; print\\('Import successful'\\)\")",
+      "Bash(python -m emb_agent --init --verbose)",
+      "Bash(python -m emb_agent --init)",
+      "Bash(python -c ':*)"
+    ]
+  }
+}
