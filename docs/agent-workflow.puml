@@ -1,0 +1,339 @@
+@startuml emb-agent-workflow
+!theme plain
+
+title Embedded System Development Agent 工作流程图
+
+skinparam componentStyle rectangle
+skinparam backgroundColor #FEFEFE
+skinparam activity {
+  BackgroundColor #E3F2FD
+  BorderColor #1565C0
+  FontSize 12
+}
+skinparam agent {
+  BackgroundColor #FFF3E0
+  BorderColor #E65100
+}
+skinparam task {
+  BackgroundColor #E8F5E9
+  BorderColor #2E7D32
+}
+skinparam decision {
+  BackgroundColor #FCE4EC
+  BorderColor #C2185B
+}
+
+== **1. 用户交互层** ==
+
+|#AliceBlue| **用户输入** |
+start
+:用户输入自然语言需求;
+:例如: "在飞腾开发板上创建LED闪烁驱动";
+
+:**UC-01 解析需求**;
+note right
+  - 调用LLM解析自然语言
+  - 提取关键要素
+  - 生成结构化需求
+end note
+
+:**UC-02 检索知识库** (可选);
+note right
+  - 向量检索相关知识
+  - 返回top_k条最相关片段
+  - 用于RAG增强生成
+end note
+|#
+
+== **2. 消息总线层** ==
+
+|#Lavender| **消息总线 (MessageBus)** |
+:InboundMessage 到达;
+fork
+  :CLI 输入;
+  :HTTP API;
+  :Server模式;
+end fork
+:消息入队;
+:等待消费;
+|#
+
+== **3. Agent核心处理循环** ==
+
+|#LightYellow| **Agent.run_agent_loop()** |
+partition "**初始化阶段**" {
+  :初始化messages列表;
+  :iteration = 0;
+  :tools_used = [];
+  :task_start_time = now();
+}
+
+partition "**主循环 while iteration < max_iterations**" {
+  :iteration += 1;
+
+  #LightCyan:**Step 1: 构建Tool Definitions**;
+  :tool_defs = tools.get_definitions();
+  note right
+    可用工具:
+    - read_file
+    - write_file
+    - edit_file
+    - list_dir
+    - retrieve_knowledge
+    - add_knowledge
+    - deploy_to_target
+    - exec_on_target
+  end note
+
+  #LightCyan:**Step 2: LLM调用**;
+  :response = provider.chat_with_retry(
+    messages=messages,
+    tools=tool_defs,
+    model=self.model
+  );
+  note right
+    LiteLLMProvider调用:
+    - DeepSeek
+    - OpenAI
+    - Anthropic
+    - MiniMax等
+  end note
+
+  #LightCyan:**Step 3: 记录Token使用量**;
+  :记录prompt_tokens;
+  :记录completion_tokens;
+
+  #LightPink:**Step 4: 判断响应类型**;
+  if (response.has_tool_calls?) then (是)
+    #LightGreen:**工具调用分支**;
+    :提取LLM思考过程;
+    :调用on_progress回调;
+
+    :tool_call_dicts = 转换工具调用格式;
+    :messages.append(assistant消息);
+
+    partition "**逐个执行工具调用**" {
+      while (for each tool_call) is (遍历工具调用)
+        :记录tools_used;
+
+        #Gold:**工具执行**;
+        :result = await tools.execute(
+          tool_call.name,
+          tool_call.arguments
+        );
+        note right
+          参数验证 → 类型转换 → 执行
+        end note
+
+        :messages.append(tool结果消息);
+      endwhile (工具调用完成)
+    }
+
+    :添加继续提示消息;
+    :MiniMax需要用户消息触发继续;
+
+  else (否)
+    #LightSalmon:**直接回复分支**;
+    :提取LLM响应内容;
+    :去除思考块(<think>...</think>);
+
+    if (finish_reason == "error") then (是)
+      :记录错误日志;
+      :final_content = 错误消息;
+      :跳出循环;
+    else (否)
+      :messages.append(assistant消息);
+      :final_content = 清理后的内容;
+      :跳出循环;
+    endif
+  endif
+}
+
+partition "**循环结束处理**" {
+  if (final_content is None and iteration >= max) then (是)
+    :记录最大迭代警告;
+    :final_content = 超时消息;
+  endif
+
+  :elapsed = now() - task_start_time;
+  :收集评估数据;
+  note right
+    - timestamp
+    - task内容
+    - 迭代次数
+    - 使用的工具
+    - 耗时
+    - 成功率
+  end note
+}
+|#
+
+== **4. 工具层 (Tool Registry)** ==
+
+|#LightGreen| **ToolRegistry** |
+partition "**工具注册**" {
+  :register(tool);
+  :工具名称去重;
+}
+
+partition "**工具执行 execute()**" {
+  :获取工具实例;
+  :参数类型转换 cast_params();
+  :参数验证 validate_params();
+  if (验证通过?) then (否)
+    :返回参数错误;
+  endif
+
+  :调用tool.execute(**params);
+  :处理异常;
+}
+|#
+
+== **5. 具体工具执行** ==
+
+|#Gold| **文件系统工具 (Filesystem Tools)** |
+fork
+  #LightBlue:**ReadFileTool**;
+    :解析路径 _resolve();
+    :检查文件存在性;
+    :分页读取 (offset/limit);
+    :返回带行号的内容;
+  #LightBlue:**WriteFileTool**;
+    :创建父目录;
+    :写入内容;
+    :返回写入字节数;
+  #LightBlue:**EditFileTool**;
+    :查找old_text;
+    :替换为new_text;
+    :replace_all选项;
+  #LightBlue:**ListDirTool**;
+    :遍历目录项;
+    :过滤忽略项 (.git等);
+    :递归/非递归选项;
+end fork
+
+|#Gold| **知识库工具 (Knowledge Tools)** |
+fork
+  #LightBlue:**KnowledgeRetrievalTool**;
+    :初始化KnowledgeBase;
+    :向量相似度检索;
+    :返回top_k条结果;
+    :格式化输出;
+  #LightBlue:**AddKnowledgeTool**;
+    :添加知识条目;
+    :保存到知识库;
+end fork
+
+|#Gold| **部署工具 (Deploy Tools)** |
+fork
+  #LightBlue:**SSHDeployTool**;
+    :压缩本地代码 tar.gz;
+    :SCP传输到目标板;
+    :处理传输错误;
+  #LightBlue:**SSHExecTool**;
+    :构建SSH命令;
+    :执行远程命令;
+    :捕获stdout/stderr;
+    :处理超时 (默认30s);
+end fork
+
+== **6. LLM Provider层** ==
+
+|#LavenderBlush| **LiteLLMProvider** |
+partition "**chat_with_retry()**" {
+  :最多重试3次;
+  :构建OpenAI兼容格式;
+  :发送HTTP请求;
+  :解析流式/非流式响应;
+  note right
+    支持的模型:
+    - claude-sonnet-4-5
+    - gpt-4o
+    - deepseek-chat
+    - minimax...
+  end note
+
+  if (请求失败?) then (是)
+    :重试;
+  else (否)
+    :解析tool_calls;
+    :构建ToolCall对象;
+  endif
+}
+
+== **7. 会话管理层** ==
+
+|#LightGray| **Session Management** |
+partition "**Session**" {
+  :get_or_create(session_key);
+  :获取历史消息 get_history();
+  :保存消息到会话;
+}
+
+partition "**评估数据收集**" {
+  :_evaluation_data.append();
+  :生成评估报告;
+}
+
+== **8. 错误处理与异常流** ==
+
+|#MistyRose| **异常处理** |
+if (LLM API超时/错误?) then (是)
+  :重试最多3次;
+  if (仍然失败?) then (是)
+    :返回"需求解析失败";
+  endif
+endif
+
+if (工具执行异常?) then (是)
+  :记录错误日志;
+  :返回错误消息;
+endif
+
+if (SSH连接失败?) then (是)
+  :提示检查连接配置;
+endif
+
+if (文件操作失败?) then (是)
+  :返回具体错误;
+endif
+
+== **9. 输出层** ==
+
+|#AliceBlue| **结果输出** |
+fork
+  #LightGreen:**CLI交互模式**;
+    :异步输入循环;
+    :异步输出循环;
+  #LightGreen:**HTTP Server模式**;
+    :POST /api/chat;
+    :返回JSON响应;
+  #LightGreen:**单命令模式**;
+    :执行后直接退出;
+end fork
+
+:返回final_content;
+:打印评估报告;
+
+stop
+
+== **完整流程示例: LED驱动开发** ==
+
+|#FFF9C4| **示例场景** |
+start
+:用户: "创建飞腾板LED驱动";
+:Agent解析需求 → 结构化需求;
+:Agent检索知识库 (飞腾GPIO);
+:Agent生成项目方案;
+:Agent生成代码文件;
+  - LED驱动源文件
+  - Makefile
+  - 设备树配置
+:Agent部署到目标板;
+:Agent执行测试命令;
+:Agent分析错误日志;
+:Agent提供修复建议;
+:Agent生成评估报告;
+stop
+
+@enduml
