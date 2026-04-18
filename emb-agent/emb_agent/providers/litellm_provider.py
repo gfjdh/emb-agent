@@ -38,8 +38,18 @@ class LiteLLMProvider(LLMProvider):
         self.extra_headers = extra_headers or {}
         self.provider_name = provider_name
 
+        # Set provider-specific environment variable if appropriate to avoid
+        # forcing Anthropic when another provider is intended.
         if api_key:
-            os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+            if provider_name == "anthropic":
+                os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+            elif provider_name == "openai":
+                os.environ.setdefault("OPENAI_API_KEY", api_key)
+            elif provider_name == "deepseek":
+                os.environ.setdefault("DEEPSEEK_API_KEY", api_key)
+            else:
+                # Default to Anthropic env var for backwards compatibility
+                os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
 
         if api_base:
             litellm.api_base = api_base
@@ -49,10 +59,25 @@ class LiteLLMProvider(LLMProvider):
 
     def _resolve_model(self, model: str) -> str:
         """Resolve model name for the given provider."""
-        if self.api_base:
+        # Provider-specific routing rules
+        if self.provider_name == "deepseek":
+            # DeepSeek uses model names like deepseek-chat/deepseek-reasoner.
+            # Do not force minimax/ prefix when api_base is set.
+            if model.startswith("anthropic/"):
+                return model.split("/", 1)[1]
+            if "/" not in model:
+                return f"deepseek/{model}"
+            return model
+
+        # Keep MiniMax compatibility behavior when explicitly selected
+        if self.provider_name == "minimax" and self.api_base:
             if "/" not in model:
                 return f"minimax/{model}"
             return model
+
+        # Legacy behavior for MiniMax model naming
+        if self.api_base and (model.startswith("MiniMax-") or model == "MiniMax-M2"):
+            return f"minimax/{model}"
 
         if model.startswith("MiniMax-") or model == "MiniMax-M2":
             return f"minimax/{model}"

@@ -1,0 +1,92 @@
+{
+  "agent": {
+    "workspace": "./workspace",
+    "model": "deepseek/deepseek-chat",
+    "provider": "deepseek",
+    "max_tokens": 8192,
+    "context_window_tokens": 200000,
+    "temperature": 0.1,
+    "max_tool_iterations": 40,
+    "reasoning_effort": null,
+    "language": "zh"
+  },
+  "providers": {
+    "custom": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "anthropic": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "openai": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "openrouter": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "deepseek": {
+      "api_key": "sk-86048f68aeea4b4b8e6ac37b785eec16",
+      "api_base": "https://api.deepseek.com/v1",
+      "extra_headers": null
+    },
+    "groq": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "zhipu": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "dashscope": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "ollama": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "gemini": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "moonshot": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    },
+    "minimax": {
+      "api_key": "",
+      "api_base": null,
+      "extra_headers": null
+    }
+  },
+  "knowledge_base": {
+    "enabled": true,
+    "vector_store_path": "./workspace/knowledge_vectorstore",
+    "top_k": 5
+  },
+  "target_board": {
+    "host": "",
+    "port": 22,
+    "username": "root",
+    "password": "",
+    "key_path": null,
+    "target_path": "/root/projects"
+  },
+  "tools": {
+    "exec_timeout": 120,
+    "restrict_to_workspace": true
+  }
+}

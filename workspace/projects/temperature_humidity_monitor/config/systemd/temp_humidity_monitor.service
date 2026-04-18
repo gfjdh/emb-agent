@@ -1,0 +1,25 @@
+[Unit]
+Description=Temperature and Humidity Monitoring Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/projects/temperature_humidity_monitor
+ExecStart=/root/projects/temperature_humidity_monitor/bin/temp_humidity_monitor --daemon --sensor dht11 --pin 17 --interval 60 --log /var/log/temp_humidity.log
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=temp_humidity_monitor
+
+# 安全设置
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/temp_humidity.log
+
+[Install]
+WantedBy=multi-user.target

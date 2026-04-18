@@ -191,15 +191,26 @@ def main() -> None:
     if args.model:
         config.agent.model = args.model
 
+    # Prefer deepseek if configured, then fall back to anthropic/openai/minimax
     api_key = (
+        config.providers.deepseek.api_key or
         config.providers.anthropic.api_key or
         config.providers.openai.api_key or
         config.providers.minimax.api_key
     )
     api_base = (
+        config.providers.deepseek.api_base or
         config.providers.anthropic.api_base or
         config.providers.openai.api_base or
         config.providers.minimax.api_base
+    )
+    # Determine provider name for diagnostics / provider-specific handling
+    provider_name = (
+        "deepseek" if config.providers.deepseek.api_key else
+        "anthropic" if config.providers.anthropic.api_key else
+        "openai" if config.providers.openai.api_key else
+        "minimax" if config.providers.minimax.api_key else
+        None
     )
 
     if not api_key:
@@ -210,6 +221,7 @@ def main() -> None:
         api_key=api_key,
         api_base=api_base,
         default_model=config.agent.model,
+        provider_name=provider_name,
     )
 
     agent = Agent(
