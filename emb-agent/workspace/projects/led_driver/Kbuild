@@ -1,8 +1,0 @@
-# Kernel module configuration
-# SPDX-License-Identifier: GPL-2.0
-
-obj-$(CONFIG_LEDS_PHYTIUM) += led_driver.o
-
-# Module parameters (optional)
-# Add to your kernel config:
-# CONFIG_LEDS_PHYTIUM=m
