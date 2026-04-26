@@ -24,6 +24,7 @@ from emb_agent.prompts import (
     get_evaluation_report_text,
 )
 from emb_agent.session import Session, SessionManager
+from emb_agent.skills import SkillLoader
 from emb_agent.tools import ToolRegistry
 from emb_agent.tools.deploy import SSHDeployTool, SSHExecTool
 from emb_agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
@@ -61,6 +62,9 @@ class Agent:
         self.bus = MessageBus()
         self.sessions = SessionManager(self.workspace)
         self.tools = ToolRegistry()
+        self.skills = SkillLoader(self.workspace.parent / "emb_agent" / "skills")
+        self.skills.discover_skills()
+        self._active_skill_context: dict[str, str] = {}
 
         self._setup_tools()
         self._setup_agent_prompt()
@@ -108,6 +112,17 @@ class Agent:
                 if self.kb.top_k:
                     kb_info += f"\nUse retrieve_knowledge to search for relevant information. Default top_k={self.kb.top_k}."
 
+        skill_context = ""
+        if self._active_skill_context:
+            if self.language == Language.ZH:
+                skill_context = "\n\n## 已加载技能"
+                for name, md_content in self._active_skill_context.items():
+                    skill_context += f"\n\n### {name}\n{md_content[:500]}"
+            else:
+                skill_context = "\n\n## Loaded Skills"
+                for name, md_content in self._active_skill_context.items():
+                    skill_context += f"\n\n### {name}\n{md_content[:500]}"
+
         tools_info = ""
         if self.tools:
             tool_defs = self.tools.get_definitions()
@@ -131,7 +146,32 @@ class Agent:
             else:
                 reasoning_info = f"\n\n## Reasoning\nReasoning effort: {self.reasoning_effort}"
 
-        return base_prompt + kb_info + tools_info + workspace_info + reasoning_info
+        return base_prompt + kb_info + skill_context + tools_info + workspace_info + reasoning_info
+
+    def _activate_matching_skills(self, query: str) -> None:
+        """Load skill context when query matches skill keywords."""
+        matched = self.skills.match_skill_by_query(query)
+        self._active_skill_context.clear()
+
+        for skill_name in matched:
+            skill = self.skills.get_skill(skill_name)
+            if skill:
+                md_content = skill.get_skill_md()
+                if md_content:
+                    self._active_skill_context[skill_name] = md_content
+                    logger.info("Activated skill: {} for query", skill_name)
+
+    async def _execute_skill(self, skill_name: str, **kwargs: Any) -> Any:
+        """Execute a loaded skill."""
+        skill = self.skills.get_skill(skill_name)
+        if not skill:
+            return {"success": False, "error": f"Skill '{skill_name}' not found"}
+
+        try:
+            return await skill.execute(**kwargs)
+        except Exception as e:
+            logger.exception("Skill execution failed: {}", skill_name)
+            return {"success": False, "error": str(e)}
 
     def build_messages(
         self,
@@ -274,6 +314,8 @@ class Agent:
     ) -> str | None:
         """Process a message and return the response."""
         logger.info("Processing message: {}", content[:80])
+
+        self._activate_matching_skills(content)
 
         session = self.sessions.get_or_create(session_key)
 
