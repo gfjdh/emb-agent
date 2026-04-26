@@ -117,11 +117,11 @@ class Agent:
             if self.language == Language.ZH:
                 skill_context = "\n\n## 已加载技能"
                 for name, md_content in self._active_skill_context.items():
-                    skill_context += f"\n\n### {name}\n{md_content[:500]}"
+                    skill_context += f"\n\n### {name}\n{md_content}"
             else:
                 skill_context = "\n\n## Loaded Skills"
                 for name, md_content in self._active_skill_context.items():
-                    skill_context += f"\n\n### {name}\n{md_content[:500]}"
+                    skill_context += f"\n\n### {name}\n{md_content}"
 
         tools_info = ""
         if self.tools:
@@ -148,9 +148,9 @@ class Agent:
 
         return base_prompt + kb_info + skill_context + tools_info + workspace_info + reasoning_info
 
-    def _activate_matching_skills(self, query: str) -> None:
-        """Load skill context when query matches skill keywords."""
-        matched = self.skills.match_skill_by_query(query)
+    async def _activate_matching_skills(self, query: str) -> None:
+        """Load skill context when query matches skill keywords or semantics."""
+        matched = await self.skills.match_skill_by_query(query)
         self._active_skill_context.clear()
 
         for skill_name in matched:
@@ -315,7 +315,7 @@ class Agent:
         """Process a message and return the response."""
         logger.info("Processing message: {}", content[:80])
 
-        self._activate_matching_skills(content)
+        await self._activate_matching_skills(content)
 
         session = self.sessions.get_or_create(session_key)
 

@@ -47,7 +47,8 @@ class TestSkillLoader:
         assert skills[0]["name"] == "rag_skill"
         assert skills[0]["has_md"] is True
 
-    def test_match_skill_by_query(self):
+    @pytest.mark.asyncio
+    async def test_match_skill_by_keywords(self):
         from emb_agent.skills import Skill
         from emb_agent.skills import SkillLoader
 
@@ -70,11 +71,74 @@ class TestSkillLoader:
         loader = SkillLoader(Path("/tmp"))
         loader._skills["test-skill"] = MockSkill()
 
-        matched = loader.match_skill_by_query("飞腾派的 GPIO 引脚定义是什么？")
-        assert "test-skill" in matched
+        with patch.object(loader, '_match_by_semantics', new_callable=AsyncMock, return_value=[]):
+            matched = await loader.match_skill_by_query("飞腾派的 GPIO 引脚定义是什么？")
+            assert "test-skill" in matched
 
-        matched = loader.match_skill_by_query("今天天气怎么样？")
-        assert len(matched) == 0
+            matched = await loader.match_skill_by_query("今天天气怎么样？")
+            assert len(matched) == 0
+
+    @pytest.mark.asyncio
+    async def test_match_skill_by_semantics(self):
+        from emb_agent.skills import Skill
+        from emb_agent.skills import SkillLoader
+
+        class MockSkill(Skill):
+            @property
+            def name(self):
+                return "test-skill"
+
+            @property
+            def description(self):
+                return "Retrieve hardware specifications and GPIO pin definitions"
+
+            @property
+            def trigger_keywords(self):
+                return ["gpio", "hardware", "pin"]
+
+            async def execute(self, **kwargs):
+                return {"success": True}
+
+        loader = SkillLoader(Path("/tmp"))
+        loader._skills["test-skill"] = MockSkill()
+        loader._skill_embeddings["test-skill"] = [0.1] * 1536
+
+        with patch.object(loader, '_match_by_semantics', new_callable=AsyncMock) as mock_semantic:
+            mock_semantic.return_value = ["test-skill"]
+
+            matched = await loader.match_skill_by_query("What are the pin configurations?")
+            assert "test-skill" in matched
+
+    @pytest.mark.asyncio
+    async def test_semantic_match_fallback_on_embedding_failure(self):
+        from emb_agent.skills import Skill
+        from emb_agent.skills import SkillLoader
+
+        class MockSkill(Skill):
+            @property
+            def name(self):
+                return "test-skill"
+
+            @property
+            def description(self):
+                return "Test skill"
+
+            @property
+            def trigger_keywords(self):
+                return ["gpio"]
+
+            async def execute(self, **kwargs):
+                return {"success": True}
+
+        loader = SkillLoader(Path("/tmp"))
+        loader._skills["test-skill"] = MockSkill()
+
+        mock_litellm = MagicMock()
+        mock_litellm.aembedding.side_effect = Exception("API unavailable")
+
+        with patch.dict("sys.modules", {"litellm": mock_litellm}):
+            matched = await loader.match_skill_by_query("gpio settings")
+            assert "test-skill" in matched
 
     def test_unload_skill(self):
         from emb_agent.skills import SkillLoader
@@ -232,7 +296,8 @@ class TestAgentSkillIntegration:
         assert loader is not None
         assert len(loader.get_available_skills()) == 0
 
-    def test_activate_matching_skills(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_activate_matching_skills(self, tmp_path):
         from emb_agent.skills import Skill, SkillLoader
 
         class MockRAGSkill(Skill):
@@ -242,7 +307,7 @@ class TestAgentSkillIntegration:
 
             @property
             def description(self):
-                return "Mock RAG skill"
+                return "Mock RAG skill for hardware queries"
 
             @property
             def trigger_keywords(self):
@@ -260,11 +325,12 @@ class TestAgentSkillIntegration:
         loader = SkillLoader(skills_dir)
         loader._skills["rag-skill"] = MockRAGSkill()
 
-        matched = loader.match_skill_by_query("飞腾派的 GPIO 是什么？")
-        assert "rag-skill" in matched
+        with patch.object(loader, '_match_by_semantics', new_callable=AsyncMock, return_value=[]):
+            matched = await loader.match_skill_by_query("飞腾派的 GPIO 是什么？")
+            assert "rag-skill" in matched
 
-        matched = loader.match_skill_by_query("无关问题")
-        assert len(matched) == 0
+            matched = await loader.match_skill_by_query("无关问题")
+            assert len(matched) == 0
 
 
 if __name__ == "__main__":

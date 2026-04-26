@@ -1,5 +1,6 @@
 """Skill base class and loader for dynamic skill management."""
 
+import math
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -48,10 +49,18 @@ class Skill(ABC):
 class SkillLoader:
     """Dynamic loader for agent skills."""
 
-    def __init__(self, skills_dir: Path):
+    def __init__(
+        self,
+        skills_dir: Path,
+        embedding_model: str = "text-embedding-3-small",
+        semantic_threshold: float = 0.35,
+    ):
         self.skills_dir = skills_dir
+        self.embedding_model = embedding_model
+        self.semantic_threshold = semantic_threshold
         self._skills: dict[str, Skill] = {}
         self._skill_metadata: dict[str, dict[str, Any]] = {}
+        self._skill_embeddings: dict[str, list[float]] = {}
 
     def discover_skills(self) -> None:
         """Scan skills directory and register available skills."""
@@ -93,6 +102,7 @@ class SkillLoader:
                 self._skills[skill_name] = skill
                 metadata["loaded"] = True
                 metadata["keywords"] = skill.trigger_keywords
+                metadata["description"] = skill.description
                 logger.info("Skill loaded: {} (keywords: {})", skill_name, skill.trigger_keywords)
             else:
                 metadata["loaded"] = False
@@ -112,8 +122,56 @@ class SkillLoader:
         """List all discovered skills."""
         return list(self._skill_metadata.values())
 
-    def match_skill_by_query(self, query: str) -> list[str]:
-        """Find skills that match a query based on keywords."""
+    async def _compute_skill_embeddings(self) -> None:
+        """Compute embeddings for all loaded skills using litellm."""
+        import litellm
+
+        texts = []
+        names = []
+        for name, skill in self._skills.items():
+            text = f"{skill.description} {' '.join(skill.trigger_keywords)}"
+            texts.append(text)
+            names.append(name)
+
+        if not texts:
+            return
+
+        try:
+            response = await litellm.aembedding(
+                model=self.embedding_model,
+                input=texts,
+            )
+            for i, data in enumerate(response.data):
+                self._skill_embeddings[names[i]] = data["embedding"]
+                logger.debug("Computed embedding for skill: {}", names[i])
+        except Exception as e:
+            logger.warning("Failed to compute skill embeddings: {}", e)
+
+    @staticmethod
+    def _cosine_similarity(a: list[float], b: list[float]) -> float:
+        """Compute cosine similarity between two vectors."""
+        if not a or not b:
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(x * x for x in b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    async def match_skill_by_query(self, query: str) -> list[str]:
+        """Find skills that match a query using keyword + semantic matching."""
+        matched = self._match_by_keywords(query)
+
+        semantic_matches = await self._match_by_semantics(query)
+        for name in semantic_matches:
+            if name not in matched:
+                matched.append(name)
+
+        return matched
+
+    def _match_by_keywords(self, query: str) -> list[str]:
+        """Match skills by keyword overlap."""
         query_lower = query.lower()
         matched = []
 
@@ -123,6 +181,35 @@ class SkillLoader:
                 matched.append(name)
 
         return matched
+
+    async def _match_by_semantics(self, query: str) -> list[str]:
+        """Match skills by semantic similarity using embeddings."""
+        import litellm
+
+        if not self._skill_embeddings:
+            await self._compute_skill_embeddings()
+
+        if not self._skill_embeddings:
+            return []
+
+        try:
+            response = await litellm.aembedding(
+                model=self.embedding_model,
+                input=[query],
+            )
+            query_embedding = response.data[0]["embedding"]
+        except Exception as e:
+            logger.warning("Failed to compute query embedding: {}", e)
+            return []
+
+        scored = []
+        for name, skill_embedding in self._skill_embeddings.items():
+            sim = self._cosine_similarity(query_embedding, skill_embedding)
+            if sim >= self.semantic_threshold:
+                scored.append((name, sim))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [name for name, _ in scored]
 
     def unload_skill(self, name: str) -> None:
         """Unload a skill from memory."""
