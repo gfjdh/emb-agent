@@ -21,8 +21,9 @@
 
 **现状**:
 - RAG知识库检索（已完成框架）
-- SSH远程连接板子（已有工具，待完善）
-- 读取板子性能指标（待实现）
+- SSH远程连接板子 ✅
+- 自动IP发现 ✅
+- 读取板子性能指标 ✅
 - 分析项目代码性能瓶颈（待实现）
 
 ---
@@ -49,8 +50,13 @@
 | exec | `emb_agent/tools/shell.py` | ✅ 完成 | 本地命令执行（安全守卫） |
 | retrieve_knowledge | `emb_agent/tools/knowledge.py` | ✅ 完成 | 知识库检索 |
 | add_knowledge | `emb_agent/tools/knowledge.py` | ✅ 完成 | 添加知识条目 |
-| deploy_to_target | `emb_agent/tools/deploy.py` | 未验证 | SCP部署到远程板子 |
-| exec_on_target | `emb_agent/tools/deploy.py` | 未验证 | SSH远程执行命令 |
+| deploy_to_target | `emb_agent/tools/deploy.py` | ✅ 完成 | SCP部署到远程板子 |
+| exec_on_target | `emb_agent/tools/deploy.py` | ✅ 完成 | SSH远程执行命令 |
+| network_scan | `emb_agent/tools/network_scan.py` | ✅ 完成 | 自动发现飞腾派IP地址 |
+| get_board_ip | `emb_agent/tools/network_scan.py` | ✅ 完成 | 动态获取板子IP |
+| get_board_metrics | `emb_agent/tools/monitor.py` | ✅ 完成 | SSH采集完整性能指标 |
+| get_board_summary | `emb_agent/tools/monitor.py` | ✅ 完成 | 性能指标快速摘要 |
+| analyze_board_performance | `emb_agent/tools/monitor.py` | ✅ 完成 | 性能数据分析与优化建议 |
 
 ### 2.3 RAG Skill（集成到Agent）✅
 
@@ -76,32 +82,30 @@
 
 **验收标准**: AnythingLLM中可检索到飞腾派开发板完整技术资料
 
-#### 3.1.2 SSH性能监控工具 🔲
+#### 3.1.2 SSH性能监控工具 ✅
 
-**需要实现**:
-- [ ] 板子SSH连接配置（当前config.json中host为空）
-- [ ] 性能指标采集工具:
-  - [ ] CPU使用率 `top -bn1 | head -20`
-  - [ ] 内存使用 `free -m`
-  - [ ] 磁盘IO `iostat -x 1 5`
-  - [ ] 网络状态 `netstat -tuln` / `ss -tuln`
-  - [ ] 进程列表 `ps aux --sort=-%cpu | head -20`
-  - [ ] 内核日志 `dmesg | tail -50`
-  - [ ] 系统负载 `uptime`
-  - [ ] 温度（如适用）`cat /sys/class/thermal/thermal_zone*/temp`
-- [ ] 封装为Agent工具: `get_board_metrics()`
+**已完成**:
+- [x] 板子SSH连接配置（用户名修复: root → user）
+- [x] 性能指标采集工具 `get_board_metrics()`:
+  - [x] CPU使用率、内存使用、磁盘IO、网络状态
+  - [x] 进程列表、系统负载、温度、内核日志
+- [x] 快速摘要工具 `get_board_summary()`
+- [x] 性能分析工具 `analyze_board_performance()`
 
-**文件**: `emb_agent/tools/monitor.py`（新建）
+**文件**: `emb_agent/tools/monitor.py`（已创建）
 
 #### 3.1.3 性能瓶颈分析Agent 🔲
 
-**需要实现**:
-- [ ] 板子性能测试脚本
-- [ ] 性能数据采集工作流
-- [ ] 性能数据解析模块
+**已实现**:
+- [x] 板子性能测试脚本 (`get_board_metrics`)
+- [x] 性能数据采集工作流 (SSH → 采集 → JSON)
+- [x] 性能数据解析模块 (`analyze_board_performance`)
+- [x] 自动IP获取 (`get_board_ip`)
+
+**待实现**:
 - [ ] 代码分析工具（读取项目代码）
 - [ ] 瓶颈识别、优化建议生成（结合RAG知识库）
-- [ ] 生成性能分析报告、给出优化建议
+- [ ] 生成性能分析报告
 
 **核心流程**:
 ```
