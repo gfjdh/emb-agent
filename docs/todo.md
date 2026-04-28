@@ -1,121 +1,140 @@
-# NPU边缘推理演示项目 - 开发计划
+# NPU边缘推理演示项目 + 嵌入式程序优化Agent - 开发计划
 
-- 修订时间: 2026-4-21
+- 修订时间: 2026-4-28
 
-## 项目背景
+---
 
-**目标**: 基于飞腾开发板，部署小型目标检测模型，实现静态图片推理，对外提供API服务
+## 一、项目背景与目标
+
+### 1.1 边缘推理盒子
+
+**目标**: 基于飞腾派开发板，部署小型目标检测模型，实现静态图片推理，对外提供API服务
 
 **现状**:
 - 硬件: 飞腾派开发板 x1 (无外设)
 - 资料: 百度网盘200G资料库 (需筛选)
 - 目标: 边缘推理盒子，API调用方式
 
----
+### 1.2 嵌入式程序优化Agent
 
-## 人员分工
+**目标**: 通过SSH连接飞腾派，读取RAG知识库，结合项目代码分析性能瓶颈并生成优化建议
 
-| 任务 | 负责人 | 职责范围 |
-|------|--------|---------|
-| 任务一 | A + B | Agent知识库、资料检索逻辑、RAG Skill开发 |
-| 任务二 | C + D | 板子系统安装、编译部署链路、Agent Tool对接 |
-
----
-
-## 任务一：Agent知识库构建（基于RAG + AnythingLLM）
-
-### 1.1 资料筛选与获取
-
-**目标**: 从200G资料中筛选出有用部分，建立可检索知识库
-
-**步骤**:
-1. 梳理飞腾派开发板的资料目录结构
-2. 制定下载清单，按需获取
-3. 建立资料库，按主题分类（如：硬件设计、系统配置、AI编程、通信模组）
-
-**交付物**: 整理好的资料库（文件夹结构 + 文件清单）
-
-### 1.2 向量知识库构建（采用 AnythingLLM + 本地Embedding模型）
-
-**目标**: 将文档内容向量化，构建语义检索知识库，为Agent提供RAG能力
-
-**步骤**:
-1. **部署基础服务**:
-   - 安装 Ollama，下载 Embedding 模型（如 `qwen3-embedding` 或 `bge-m3`）
-   - 安装 AnythingLLM 桌面版或 Docker 版，配置使用本地 Ollama 的 Embedding 模型
-2. **文档向量化与入库**:
-   - 将筛选后的 PDF / Markdown / 文本文件上传至 AnythingLLM 工作区
-   - 设置分块参数（推荐：切片长度 1000，上下文保留 200）
-   - 执行向量化嵌入，将结果存储到 LanceDB（AnythingLLM 默认本地向量库）
-3. **验证检索效果**:
-   - 通过 AnythingLLM 内置对话界面测试语义检索准确性
-   - 调整分块策略和 Embedding 模型（如需更高精度可换用 `bge-m3`）
-
-**交付物**:
-- 可访问的 AnythingLLM 知识库实例（本地）
-
-### 1.3 Agent 与 RAG 集成（将检索封装为 Skill）
-
-**目标**: 让 Agent 能够通过调用一个“RAG Skill”来查询知识库，实现模块化、可热插拔的检索能力
-
-**步骤**:
-1. **设计 RAG Skill 结构**:
-   - 创建 `rag-skill` 文件夹，包含 `SKILL.md`（使用说明）和调用 AnythingLLM API 的脚本
-   - `SKILL.md` 中描述技能触发条件、输入参数（查询关键词/句子）、输出格式（相关文档片段+来源）
-2. **实现 AnythingLLM API 调用封装**:
-   - 编写 Python 脚本，通过 AnythingLLM 的 REST API 进行查询
-   - 支持参数：`query`（查询文本）、`top_k`（返回片段数量）
-   - 返回结构化 JSON（包含文本内容、文档名、相似度分数）
-3. **将 Skill 接入 Agent Core**:
-   - 确保 Agent 框架支持动态加载/卸载 Skills（例如通过扫描 `skills/` 目录）
-   - 实现“使用说明按需加载”：仅当用户问题疑似需要知识库时，才将 `SKILL.md` 内容注入上下文并且缓存在上下文
-4. **测试端到端流程**:
-   - 用户提问：“飞腾派的 GPIO 引脚定义是什么？”
-   - Agent 判断需调用 RAG Skill → 读取 `SKILL.md` → 调用 API → 获得检索结果 → 生成最终回答
-
-**交付物**:
-- `rag-skill` 完整代码包（含 SKILL.md + 调用脚本）
-- Agent Core 集成示例（演示动态加载/卸载）
-- 测试用例及效果截图
-
-### 1.4 检索逻辑优化与维护
-
-**目标**: 持续提升检索准确率，并支持知识库更新
-
-**步骤**:
-1. 建立检索效果评估集（至少20个典型问题 + 预期答案片段）
-2. 根据测试结果调整 AnythingLLM 的分块大小、重叠度、Embedding 模型
-3. 实现知识库增量更新流程（新增文档时，自动或半自动重新/增量向量化）
-4. 可选：在 RAG Skill 中加入同义词扩展或多轮检索重试逻辑
-
-**交付物**: 检索优化记录 + 自动化更新脚本（可选）
+**现状**:
+- RAG知识库检索（已完成框架）
+- SSH远程连接板子（已有工具，待完善）
+- 读取板子性能指标（待实现）
+- 分析项目代码性能瓶颈（待实现）
 
 ---
 
-## 任务二：板子系统安装与跨平台开发链路
+## 二、已完成内容
 
-### 2.1 板子系统安装（目标：跑通 Ubuntu）
+### 2.1 Agent框架 ✅
 
-**目标**: 在飞腾派开发板上成功安装并运行 Ubuntu 系统
+| 模块 | 文件 | 状态 | 说明 |
+|------|------|------|------|
+| Agent Core | `emb_agent/agent/core.py` | ✅ 完成 | 主循环、消息处理、工具编排 |
+| LLM Provider | `emb_agent/providers/` | ✅ 完成 | 支持MiniMax、Anthropic等多提供商 |
+| 工具注册 | `emb_agent/tools/registry.py` | ✅ 完成 | ToolRegistry统一管理 |
+| 会话管理 | `emb_agent/session/` | ✅ 完成 | JSONL持久化 |
 
-**交付物**:
-- 板子上已烧录且可启动的 Ubuntu 系统
-- 系统安装步骤文档（含镜像来源、烧录工具、配置要点）
+### 2.2 工具集 ✅
 
-### 2.2 跨平台开发链路搭建
+| 工具 | 文件 | 状态 | 说明 |
+|------|------|------|------|
+| read_file | `emb_agent/tools/filesystem.py` | ✅ 完成 | 分页读取文件 |
+| write_file | `emb_agent/tools/filesystem.py` | ✅ 完成 | 文件写入 |
+| edit_file | `emb_agent/tools/filesystem.py` | ✅ 完成 | 文本替换编辑 |
+| list_dir | `emb_agent/tools/filesystem.py` | ✅ 完成 | 目录列表 |
+| exec | `emb_agent/tools/shell.py` | ✅ 完成 | 本地命令执行（安全守卫） |
+| retrieve_knowledge | `emb_agent/tools/knowledge.py` | ✅ 完成 | 知识库检索 |
+| add_knowledge | `emb_agent/tools/knowledge.py` | ✅ 完成 | 添加知识条目 |
+| deploy_to_target | `emb_agent/tools/deploy.py` | 未验证 | SCP部署到远程板子 |
+| exec_on_target | `emb_agent/tools/deploy.py` | 未验证 | SSH远程执行命令 |
 
-**目标**: 建立从主机到板子的完整编译、部署、运行链路
+### 2.3 RAG Skill（集成到Agent）✅
 
-**交付物**:
-- 可用的交叉编译工具链配置说明
-- 一键部署脚本（可选）
-- 标准操作流程文档
+| 文件 | 状态 | 说明 |
+|------|------|------|
+| `emb_agent/skills/rag_skill/SKILL.md` | ✅ 完成 | 技能使用说明 |
+| `emb_agent/skills/rag_skill/api_client.py` | ✅ 完成 | AnythingLLM REST API封装 |
+| `emb_agent/skills/rag_skill/__init__.py` | ✅ 完成 | RAGSkill类实现 |
+| `emb_agent/skills/__init__.py` | ✅ 完成 | SkillLoader动态加载框架 |
 
-### 2.3 Agent Tool 对接（可选）
+**RAG当前状态**: 框架完成，但知识库内容待补充
 
-**目标**: 让 Agent 能够通过 Tool 调用自动完成"在板子上编译并运行代码"
+---
 
-**交付物**:
-- Agent Tool 代码（Python 或 Node.js）
-- 集成说明文档
-- 演示视频/截图
+## 三、待完成内容
+
+### 3.1 嵌入式程序优化Agent
+
+#### 3.1.1 RAG知识库完善 🔲
+
+**内容**:
+- [ ] 待补充
+
+**验收标准**: AnythingLLM中可检索到飞腾派开发板完整技术资料
+
+#### 3.1.2 SSH性能监控工具 🔲
+
+**需要实现**:
+- [ ] 板子SSH连接配置（当前config.json中host为空）
+- [ ] 性能指标采集工具:
+  - [ ] CPU使用率 `top -bn1 | head -20`
+  - [ ] 内存使用 `free -m`
+  - [ ] 磁盘IO `iostat -x 1 5`
+  - [ ] 网络状态 `netstat -tuln` / `ss -tuln`
+  - [ ] 进程列表 `ps aux --sort=-%cpu | head -20`
+  - [ ] 内核日志 `dmesg | tail -50`
+  - [ ] 系统负载 `uptime`
+  - [ ] 温度（如适用）`cat /sys/class/thermal/thermal_zone*/temp`
+- [ ] 封装为Agent工具: `get_board_metrics()`
+
+**文件**: `emb_agent/tools/monitor.py`（新建）
+
+#### 3.1.3 性能瓶颈分析Agent 🔲
+
+**需要实现**:
+- [ ] 板子性能测试脚本
+- [ ] 性能数据采集工作流
+- [ ] 性能数据解析模块
+- [ ] 代码分析工具（读取项目代码）
+- [ ] 瓶颈识别、优化建议生成（结合RAG知识库）
+- [ ] 生成性能分析报告、给出优化建议
+
+**核心流程**:
+```
+用户: "分析一下当前板子性能瓶颈"
+  → SSH连接板子 → 执行板子推理性能测试脚本 → 采集性能指标 → 结合项目代码、知识库分析 → 生成优化建议
+```
+
+### 3.2 边缘推理盒子
+
+#### 3.2.1 开发环境准备 🔲
+
+- [ ] 飞腾派Ubuntu系统初始化
+- [ ] 开发板网络配置（SSH访问）
+- [ ] 交叉编译工具链安装
+- [ ] OpenCV/OpenGL等依赖安装
+
+#### 3.2.2 模型部署框架 🔲
+
+- [ ] 模型格式选择（ONNX/TFLite/自定义）
+- [ ] 推理引擎选型（NCNN/OpenCV DNN/供应商SDK）
+- [ ] 基础图像处理pipeline
+- [ ] API服务框架（Flask/FastAPI）
+
+#### 3.2.3 图像识别模型 🔲
+
+- [ ] 模型选型（yolov5s/yolov8s/mobilenet-ssd等）
+- [ ] 模型转换（从PyTorch/TensorFlow转到飞腾派可执行格式）
+- [ ] 模型优化（量化/剪枝）
+- [ ] 静态图片推理测试
+
+#### 3.2.4 API服务开发 🔲
+
+- [ ] 图片上传接口
+- [ ] 推理调用
+- [ ] 结果返回
+- [ ] 性能测试
