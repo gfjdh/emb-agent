@@ -29,6 +29,7 @@ from emb_agent.tools import ToolRegistry
 from emb_agent.tools.deploy import SSHDeployTool, SSHExecTool
 from emb_agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from emb_agent.tools.knowledge import AddKnowledgeTool, KnowledgeRetrievalTool
+from emb_agent.tools.network_scan import GetBoardIPTool, NetworkScanTool
 from emb_agent.tools.shell import ExecTool
 
 
@@ -91,6 +92,8 @@ class Agent:
         self.tools.register(AddKnowledgeTool(workspace=self.workspace))
         self.tools.register(SSHDeployTool())
         self.tools.register(SSHExecTool())
+        self.tools.register(NetworkScanTool())
+        self.tools.register(GetBoardIPTool())
 
     def _setup_agent_prompt(self) -> None:
         """Create agent prompt directory if needed."""
