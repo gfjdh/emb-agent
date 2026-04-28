@@ -40,6 +40,7 @@ class LiteLLMProvider(LLMProvider):
 
         if api_key:
             os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+            os.environ.setdefault("MINIMAX_API_KEY", api_key)
 
         if api_base:
             litellm.api_base = api_base
@@ -49,12 +50,12 @@ class LiteLLMProvider(LLMProvider):
 
     def _resolve_model(self, model: str) -> str:
         """Resolve model name for the given provider."""
-        if self.api_base:
-            if "/" not in model:
-                return f"minimax/{model}"
+        if model.startswith("minimax/"):
             return model
-
+            
         if model.startswith("MiniMax-") or model == "MiniMax-M2":
+            if self.api_base:
+                return model
             return f"minimax/{model}"
 
         return model
@@ -69,8 +70,8 @@ class LiteLLMProvider(LLMProvider):
         tool_choice: str | dict[str, Any] | None = None,
     ) -> LLMResponse:
         """Send a chat completion request via LiteLLM."""
-        model = model or self.default_model
-        model = self._resolve_model(model)
+        original_model = model or self.default_model
+        model = self._resolve_model(original_model)
         max_tokens = max(1, max_tokens)
 
         kwargs: dict[str, Any] = {
@@ -83,7 +84,10 @@ class LiteLLMProvider(LLMProvider):
         if self.api_key:
             kwargs["api_key"] = self.api_key
 
-        if self.api_base:
+        if self.api_base and (original_model.startswith("MiniMax-") or original_model == "MiniMax-M2"):
+            kwargs["api_base"] = f"{self.api_base}/v1"
+            kwargs["custom_llm_provider"] = "openai"
+        elif self.api_base:
             kwargs["api_base"] = self.api_base
 
         if self.extra_headers:
