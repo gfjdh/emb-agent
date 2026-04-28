@@ -212,6 +212,16 @@ def main() -> None:
         default_model=config.agent.model,
     )
 
+    # 构建目标板配置字典
+    target_board_config = {
+        "host": config.target_board.host,
+        "port": config.target_board.port,
+        "username": config.target_board.username,
+        "password": config.target_board.password,
+        "key_path": config.target_board.key_path,
+        "target_path": config.target_board.target_path,
+    }
+
     agent = Agent(
         workspace=config.workspace_path,
         provider=provider,
@@ -220,6 +230,7 @@ def main() -> None:
         context_window_tokens=config.agent.context_window_tokens,
         language=config.agent.language,
         reasoning_effort=config.agent.reasoning_effort,
+        target_board_config=target_board_config,
     )
 
     if args.command:

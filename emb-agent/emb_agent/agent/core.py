@@ -46,6 +46,7 @@ class Agent:
         context_window_tokens: int = 200000,
         language: str = "zh",
         reasoning_effort: str | None = None,
+        target_board_config: dict | None = None,
     ):
         self.workspace = workspace
         self.provider = provider
@@ -55,6 +56,7 @@ class Agent:
         self.language = Language(language) if language else Language.ZH
         self.reasoning_effort = reasoning_effort
         self.kb = None
+        self.target_board_config = target_board_config or {}
 
         self.workspace.mkdir(parents=True, exist_ok=True)
         (self.workspace / "projects").mkdir(exist_ok=True)
@@ -80,6 +82,14 @@ class Agent:
         """Register all available tools."""
         restrict = True
 
+        # 获取目标板配置
+        board_host = self.target_board_config.get("host", "")
+        board_port = self.target_board_config.get("port", 22)
+        board_username = self.target_board_config.get("username", "root")
+        board_password = self.target_board_config.get("password", "")
+        board_key_path = self.target_board_config.get("key_path", None)
+        board_target_path = self.target_board_config.get("target_path", "/root/projects")
+
         self.tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=self.workspace))
         self.tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=self.workspace))
         self.tools.register(EditFileTool(workspace=self.workspace, allowed_dir=self.workspace))
@@ -91,13 +101,44 @@ class Agent:
         ))
         self.tools.register(KnowledgeRetrievalTool(workspace=self.workspace))
         self.tools.register(AddKnowledgeTool(workspace=self.workspace))
-        self.tools.register(SSHDeployTool())
-        self.tools.register(SSHExecTool())
+        self.tools.register(SSHDeployTool(
+            host=board_host,
+            port=board_port,
+            username=board_username,
+            password=board_password,
+            key_path=board_key_path,
+            target_path=board_target_path,
+        ))
+        self.tools.register(SSHExecTool(
+            host=board_host,
+            port=board_port,
+            username=board_username,
+            password=board_password,
+            key_path=board_key_path,
+        ))
         self.tools.register(NetworkScanTool())
         self.tools.register(GetBoardIPTool())
-        self.tools.register(BoardMetricsTool())
-        self.tools.register(BoardMetricSummaryTool())
-        self.tools.register(BoardMetricsAnalysisTool())
+        self.tools.register(BoardMetricsTool(
+            host=board_host,
+            port=board_port,
+            username=board_username,
+            password=board_password,
+            key_path=board_key_path,
+        ))
+        self.tools.register(BoardMetricSummaryTool(
+            host=board_host,
+            port=board_port,
+            username=board_username,
+            password=board_password,
+            key_path=board_key_path,
+        ))
+        self.tools.register(BoardMetricsAnalysisTool(
+            host=board_host,
+            port=board_port,
+            username=board_username,
+            password=board_password,
+            key_path=board_key_path,
+        ))
 
     def _setup_agent_prompt(self) -> None:
         """Create agent prompt directory if needed."""

@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import paramiko
 from emb_agent.tools.base import Tool
 
 
@@ -102,7 +103,11 @@ class SSHDeployTool(Tool):
     def _build_scp_command(self, source: str, target_host: str, target_path: str) -> str:
         key_opt = f"-i {self.key_path}" if self.key_path else ""
         port_opt = f"-P {self.port}" if self.port != 22 else ""
-        return f"scp {key_opt} {port_opt} {source} {self.username}@{target_host}:{target_path}"
+        if self.password:
+            # 使用 sshpass 进行密码认证
+            return f"sshpass -p '{self.password}' scp {key_opt} {port_opt} {source} {self.username}@{target_host}:{target_path}"
+        else:
+            return f"scp {key_opt} {port_opt} {source} {self.username}@{target_host}:{target_path}"
 
 
 class SSHExecTool(Tool):
@@ -163,25 +168,12 @@ class SSHExecTool(Tool):
             return "Error: No host provided and no default target_board host configured"
 
         try:
-            ssh_cmd = self._build_ssh_command(target_host, command, timeout)
-            proc = await asyncio.create_subprocess_shell(
-                ssh_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=timeout + 5,
-            )
-
+            output, exit_code = await self._exec_ssh_command(target_host, command, timeout)
+            
             output_parts = []
-            if stdout:
-                output_parts.append(stdout.decode("utf-8", errors="replace"))
-            if stderr:
-                stderr_text = stderr.decode("utf-8", errors="replace")
-                if stderr_text.strip():
-                    output_parts.append(f"STDERR:\n{stderr_text}")
-            output_parts.append(f"\nExit code: {proc.returncode}")
+            if output:
+                output_parts.append(output)
+            output_parts.append(f"\nExit code: {exit_code}")
 
             return "\n".join(output_parts) if output_parts else "(no output)"
 
@@ -190,7 +182,54 @@ class SSHExecTool(Tool):
         except Exception as e:
             return f"Error executing on target: {str(e)}"
 
-    def _build_ssh_command(self, host: str, command: str, timeout: int) -> str:
-        key_opt = f"-i {self.key_path}" if self.key_path else ""
-        port_opt = f"-p {self.port}" if self.port != 22 else ""
-        return f"ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
+    async def _exec_ssh_command(self, host: str, command: str, timeout: int) -> tuple[str, int]:
+        """Execute command on remote host via SSH using paramiko."""
+        loop = asyncio.get_event_loop()
+        
+        def run_ssh():
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            try:
+                if self.key_path:
+                    # 使用密钥认证
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        key_filename=self.key_path,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+                elif self.password:
+                    # 使用密码认证
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        password=self.password,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+                else:
+                    # 默认使用密钥认证（查找默认密钥）
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+                
+                stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
+                output = stdout.read().decode("utf-8", errors="replace").strip()
+                stderr_output = stderr.read().decode("utf-8", errors="replace").strip()
+                
+                if stderr_output:
+                    output += "\nSTDERR: " + stderr_output
+                
+                return output, stdout.channel.recv_exit_status()
+            finally:
+                ssh.close()
+        
+        return await loop.run_in_executor(None, run_ssh)

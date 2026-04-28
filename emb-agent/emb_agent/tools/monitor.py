@@ -4,6 +4,7 @@ import asyncio
 import json
 from typing import Any, Dict, List
 
+import paramiko
 from emb_agent.tools.base import Tool
 
 
@@ -15,11 +16,13 @@ class BoardMetricsTool(Tool):
         host: str = "",
         port: int = 22,
         username: str = "root",
+        password: str = "",
         key_path: str | None = None,
     ):
         self.host = host
         self.port = port
         self.username = username
+        self.password = password
         self.key_path = key_path
 
     @property
@@ -84,21 +87,7 @@ class BoardMetricsTool(Tool):
             return {"error": f"Unknown metric: {metric}"}
 
         try:
-            ssh_cmd = self._build_ssh_command(host, cmd, 30)
-            proc = await asyncio.create_subprocess_shell(
-                ssh_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=35,
-            )
-
-            output = stdout.decode("utf-8", errors="replace").strip()
-            if stderr and stderr.decode("utf-8", errors="replace").strip():
-                output += "\nSTDERR: " + stderr.decode("utf-8", errors="replace").strip()
-
+            output = await self._exec_ssh_command(host, cmd, 30)
             return output
 
         except asyncio.TimeoutError:
@@ -106,10 +95,66 @@ class BoardMetricsTool(Tool):
         except Exception as e:
             return {"error": str(e)}
 
+    async def _exec_ssh_command(self, host: str, command: str, timeout: int) -> str:
+        """Execute command on remote host via SSH using paramiko."""
+        loop = asyncio.get_event_loop()
+        
+        def run_ssh():
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            try:
+                if self.key_path:
+                    # 使用密钥认证
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        key_filename=self.key_path,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+                elif self.password:
+                    # 使用密码认证
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        password=self.password,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+                else:
+                    # 默认使用密钥认证（查找默认密钥）
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+                
+                stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
+                output = stdout.read().decode("utf-8", errors="replace").strip()
+                stderr_output = stderr.read().decode("utf-8", errors="replace").strip()
+                
+                if stderr_output:
+                    output += "\nSTDERR: " + stderr_output
+                
+                return output
+            finally:
+                ssh.close()
+        
+        return await loop.run_in_executor(None, run_ssh)
+
     def _build_ssh_command(self, host: str, command: str, timeout: int) -> str:
         key_opt = f"-i {self.key_path}" if self.key_path else ""
         port_opt = f"-p {self.port}" if self.port != 22 else ""
-        return f"ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
+        if self.password:
+            # 使用 sshpass 进行密码认证
+            return f"sshpass -p '{self.password}' ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
+        else:
+            return f"ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
 
 
 class BoardMetricSummaryTool(Tool):
@@ -120,11 +165,13 @@ class BoardMetricSummaryTool(Tool):
         host: str = "",
         port: int = 22,
         username: str = "root",
+        password: str = "",
         key_path: str | None = None,
     ):
         self.host = host
         self.port = port
         self.username = username
+        self.password = password
         self.key_path = key_path
 
     @property
@@ -208,7 +255,11 @@ class BoardMetricSummaryTool(Tool):
     def _build_ssh_command(self, host: str, command: str, timeout: int) -> str:
         key_opt = f"-i {self.key_path}" if self.key_path else ""
         port_opt = f"-p {self.port}" if self.port != 22 else ""
-        return f"ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
+        if self.password:
+            # 使用 sshpass 进行密码认证
+            return f"sshpass -p '{self.password}' ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
+        else:
+            return f"ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
 
 
 class BoardMetricsAnalysisTool(Tool):
@@ -219,11 +270,13 @@ class BoardMetricsAnalysisTool(Tool):
         host: str = "",
         port: int = 22,
         username: str = "root",
+        password: str = "",
         key_path: str | None = None,
     ):
         self.host = host
         self.port = port
         self.username = username
+        self.password = password
         self.key_path = key_path
         self.metrics_tool = BoardMetricsTool(host, port, username, key_path)
 
