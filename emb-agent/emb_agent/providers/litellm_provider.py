@@ -40,7 +40,9 @@ class LiteLLMProvider(LLMProvider):
 
         if api_key:
             os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+            os.environ.setdefault("DEEPSEEK_API_KEY", api_key)
             os.environ.setdefault("MINIMAX_API_KEY", api_key)
+            os.environ.setdefault("OPENAI_API_KEY", api_key)
 
         if api_base:
             litellm.api_base = api_base

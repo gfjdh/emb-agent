@@ -194,11 +194,13 @@ def main() -> None:
     api_key = (
         config.providers.anthropic.api_key or
         config.providers.openai.api_key or
+        config.providers.deepseek.api_key or
         config.providers.minimax.api_key
     )
     api_base = (
         config.providers.anthropic.api_base or
         config.providers.openai.api_base or
+        config.providers.deepseek.api_base or
         config.providers.minimax.api_base
     )
 
