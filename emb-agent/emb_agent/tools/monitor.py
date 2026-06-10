@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from typing import Any, Dict, List
 
 import paramiko
@@ -98,11 +99,11 @@ class BoardMetricsTool(Tool):
     async def _exec_ssh_command(self, host: str, command: str, timeout: int) -> str:
         """Execute command on remote host via SSH using paramiko."""
         loop = asyncio.get_event_loop()
-        
+
         def run_ssh():
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
+
             try:
                 if self.key_path:
                     # 使用密钥认证
@@ -133,18 +134,18 @@ class BoardMetricsTool(Tool):
                         timeout=timeout,
                         banner_timeout=timeout,
                     )
-                
+
                 stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
                 output = stdout.read().decode("utf-8", errors="replace").strip()
                 stderr_output = stderr.read().decode("utf-8", errors="replace").strip()
-                
+
                 if stderr_output:
                     output += "\nSTDERR: " + stderr_output
-                
+
                 return output
             finally:
                 ssh.close()
-        
+
         return await loop.run_in_executor(None, run_ssh)
 
     def _build_ssh_command(self, host: str, command: str, timeout: int) -> str:
@@ -201,50 +202,36 @@ class BoardMetricSummaryTool(Tool):
         if not target_host:
             return json.dumps({"error": "No host provided and no default target_board host configured"}, ensure_ascii=False)
 
+        cmd = (
+            "echo \"=== SYSTEM ===\" && "
+            "echo \"Hostname: $(hostname)\" && "
+            "echo \"OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2)\" && "
+            "echo \"Kernel: $(uname -r)\" && "
+            "echo \"\" && "
+            "echo \"=== CPU ===\" && "
+            "top -bn1 | head -5 | tail -2 && "
+            "echo \"\" && "
+            "echo \"=== MEMORY ===\" && "
+            "free -h | head -2 && "
+            "echo \"\" && "
+            "echo \"=== DISK ===\" && "
+            "df -h / | tail -1 && "
+            "echo \"\" && "
+            "echo \"=== LOAD ===\" && "
+            "uptime && "
+            "echo \"\" && "
+            "echo \"=== TOP_PROCESSES ===\" && "
+            "ps aux --sort=-%cpu | head -6 | tail -4 && "
+            "echo \"\" && "
+            "echo \"=== NETWORK ===\" && "
+            "ip addr show | grep -E 'inet (?!127.0.0.1)' | head -3 && "
+            "echo \"\" && "
+            "echo \"=== TEMPERATURE ===\" && "
+            "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | awk '{printf \"%.1f°C \", $1/1000}' || echo \"N/A\""
+        )
+
         try:
-            cmd = """
-                echo "=== SYSTEM ===" && \
-                echo "Hostname: $(hostname)" && \
-                echo "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)" && \
-                echo "Kernel: $(uname -r)" && \
-                echo "" && \
-                echo "=== CPU ===" && \
-                top -bn1 | head -5 | tail -2 && \
-                echo "" && \
-                echo "=== MEMORY ===" && \
-                free -h | head -2 && \
-                echo "" && \
-                echo "=== DISK ===" && \
-                df -h / | tail -1 && \
-                echo "" && \
-                echo "=== LOAD ===" && \
-                uptime && \
-                echo "" && \
-                echo "=== TOP_PROCESSES ===" && \
-                ps aux --sort=-%cpu | head -6 | tail -4 && \
-                echo "" && \
-                echo "=== NETWORK ===" && \
-                ip addr show | grep -E 'inet (?!127.0.0.1)' | head -3 && \
-                echo "" && \
-                echo "=== TEMPERATURE ===" && \
-                cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | awk '{printf \"%.1f°C \", $1/1000}' || echo "N/A"
-            """
-
-            ssh_cmd = self._build_ssh_command(target_host, cmd, 30)
-            proc = await asyncio.create_subprocess_shell(
-                ssh_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=35,
-            )
-
-            output = stdout.decode("utf-8", errors="replace").strip()
-            if stderr and stderr.decode("utf-8", errors="replace").strip():
-                output += "\nWarnings: " + stderr.decode("utf-8", errors="replace").strip()
-
+            output = await self._exec_ssh_command(target_host, cmd, 30)
             return output
 
         except asyncio.TimeoutError:
@@ -252,14 +239,57 @@ class BoardMetricSummaryTool(Tool):
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
 
-    def _build_ssh_command(self, host: str, command: str, timeout: int) -> str:
-        key_opt = f"-i {self.key_path}" if self.key_path else ""
-        port_opt = f"-p {self.port}" if self.port != 22 else ""
-        if self.password:
-            # 使用 sshpass 进行密码认证
-            return f"sshpass -p '{self.password}' ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
-        else:
-            return f"ssh {key_opt} {port_opt} -o StrictHostKeyChecking=no -o ConnectTimeout={timeout} {self.username}@{host} '{command}'"
+    async def _exec_ssh_command(self, host: str, command: str, timeout: int) -> str:
+        """Execute command on remote host via SSH using paramiko."""
+        loop = asyncio.get_event_loop()
+
+        def run_ssh():
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            try:
+                if self.key_path:
+                    # 使用密钥认证
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        key_filename=self.key_path,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+                elif self.password:
+                    # 使用密码认证
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        password=self.password,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+                else:
+                    # 默认使用密钥认证（查找默认密钥）
+                    ssh.connect(
+                        hostname=host,
+                        port=self.port,
+                        username=self.username,
+                        timeout=timeout,
+                        banner_timeout=timeout,
+                    )
+
+                stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
+                output = stdout.read().decode("utf-8", errors="replace").strip()
+                stderr_output = stderr.read().decode("utf-8", errors="replace").strip()
+
+                if stderr_output:
+                    output += "\nSTDERR: " + stderr_output
+
+                return output
+            finally:
+                ssh.close()
+
+        return await loop.run_in_executor(None, run_ssh)
 
 
 class BoardMetricsAnalysisTool(Tool):
@@ -278,7 +308,7 @@ class BoardMetricsAnalysisTool(Tool):
         self.username = username
         self.password = password
         self.key_path = key_path
-        self.metrics_tool = BoardMetricsTool(host, port, username, key_path)
+        self.metrics_tool = BoardMetricsTool(host, port, username, password, key_path)
 
     @property
     def name(self) -> str:
@@ -309,7 +339,7 @@ class BoardMetricsAnalysisTool(Tool):
 
         # 获取性能数据
         metrics_output = await self.metrics_tool.execute(host=target_host)
-        
+
         try:
             metrics = json.loads(metrics_output)
         except json.JSONDecodeError:
@@ -423,7 +453,7 @@ class BoardMetricsAnalysisTool(Tool):
         """Parse temperature values from thermal zone output."""
         temps = []
         for line in temp_output.split('\n'):
-            match = __import__('re').search(r'(\d+\.?\d*)°C', line)
+            match = re.search(r'(\d+\.?\d*)°C', line)
             if match:
                 try:
                     temps.append(float(match.group(1)))

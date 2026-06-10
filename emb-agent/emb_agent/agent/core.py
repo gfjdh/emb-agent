@@ -66,7 +66,7 @@ class Agent:
         self.bus = MessageBus()
         self.sessions = SessionManager(self.workspace)
         self.tools = ToolRegistry()
-        self.skills = SkillLoader(self.workspace.parent / "emb_agent" / "skills")
+        self.skills = SkillLoader(self.workspace.parent / "emb_agent" / "skills", embedding_model=None)
         self.skills.discover_skills()
         self._active_skill_context: dict[str, str] = {}
 

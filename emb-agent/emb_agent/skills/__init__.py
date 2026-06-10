@@ -1,5 +1,6 @@
 """Skill base class and loader for dynamic skill management."""
 
+import asyncio
 import math
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -52,7 +53,7 @@ class SkillLoader:
     def __init__(
         self,
         skills_dir: Path,
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str | None = None,
         semantic_threshold: float = 0.35,
     ):
         self.skills_dir = skills_dir
@@ -137,15 +138,18 @@ class SkillLoader:
             return
 
         try:
-            response = await litellm.aembedding(
-                model=self.embedding_model,
-                input=texts,
+            response = await asyncio.wait_for(
+                litellm.aembedding(
+                    model=self.embedding_model,
+                    input=texts,
+                ),
+                timeout=5,
             )
             for i, data in enumerate(response.data):
                 self._skill_embeddings[names[i]] = data["embedding"]
                 logger.debug("Computed embedding for skill: {}", names[i])
         except Exception as e:
-            logger.warning("Failed to compute skill embeddings: {}", e)
+            logger.debug("Failed to compute skill embeddings: {}", e)
 
     @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -184,6 +188,9 @@ class SkillLoader:
 
     async def _match_by_semantics(self, query: str) -> list[str]:
         """Match skills by semantic similarity using embeddings."""
+        if not self.embedding_model:
+            return []
+
         import litellm
 
         if not self._skill_embeddings:
@@ -193,13 +200,16 @@ class SkillLoader:
             return []
 
         try:
-            response = await litellm.aembedding(
-                model=self.embedding_model,
-                input=[query],
+            response = await asyncio.wait_for(
+                litellm.aembedding(
+                    model=self.embedding_model,
+                    input=[query],
+                ),
+                timeout=5,
             )
             query_embedding = response.data[0]["embedding"]
         except Exception as e:
-            logger.warning("Failed to compute query embedding: {}", e)
+            logger.debug("Failed to compute query embedding: {}", e)
             return []
 
         scored = []
